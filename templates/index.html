@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgroTech - Simulador Ambiental com Reservatório</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* ==================================================================
+           Dashboard individual de Pegada de Carbono por Talhão (tema escuro)
+           Escopado sob .pcd-dashboard para não afetar o restante do app.
+           ================================================================== */
+        .pcd-dashboard { background:#0f1f1a; color:#e8f0ec; border-radius:10px; overflow:hidden; }
+        .pcd-header { background:#16302a; padding:16px 20px; }
+        .pcd-header h2 { margin:0; font-size:17px; letter-spacing:0.4px; color:#fff; font-weight:700; }
+        .pcd-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px,1fr)); gap:1px; background:#0a1712; }
+        .pcd-kpi { background:#132922; padding:16px 18px; }
+        .pcd-kpi-label { font-size:10.5px; letter-spacing:0.5px; color:#9db3ab; text-transform:uppercase; margin-bottom:10px; }
+        .pcd-kpi-value { font-size:21px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; line-height:1.15; }
+        .pcd-kpi-sub { font-size:11.5px; color:#9db3ab; margin-top:6px; }
+        .pcd-icon { font-size:19px; }
+        .pcd-charts { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#0a1712; }
+        .pcd-chart-card { background:#132922; padding:16px 20px; }
+        .pcd-chart-title { color:#fff; font-size:12.5px; font-weight:700; letter-spacing:0.5px; margin-bottom:12px; text-transform:uppercase; }
+        .pcd-chart-title small { display:block; color:#9db3ab; font-weight:400; text-transform:none; margin-top:2px; font-size:12px; }
+        .pcd-table-wrap { background:#132922; padding:16px 20px; border-top:1px solid #0a1712; }
+        .pcd-table-title { color:#fff; font-size:12.5px; font-weight:700; margin-bottom:10px; letter-spacing:0.5px; text-transform:uppercase; }
+        .pcd-table { width:100%; border-collapse:collapse; color:#dce8e2; font-size:14px; }
+        .pcd-table th { text-align:left; padding:9px 10px; color:#9db3ab; font-weight:600; border-bottom:1px solid #24463c; font-size:12.5px; text-transform:uppercase; }
+        .pcd-table td { padding:9px 10px; border-bottom:1px solid #1c352d; }
+        .pcd-table tbody tr:hover { background:#16302a; }
+        .pcd-footer { padding:14px 20px; background:#0f1f1a; }
+        .pcd-btn-fechar { background:#24463c; color:#fff; border:none; padding:8px 18px; border-radius:5px; cursor:pointer; font-size:13px; }
+        .pcd-btn-fechar:hover { background:#2f5c4d; }
+        .pcd-btn-ver-balanco { background:#1b5e20; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px; }
+        .pcd-btn-ver-balanco:hover { background:#2e7d32; }
+        @media (max-width: 800px) {
+            .pcd-charts { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Simulador Hídrico e Ambiental - Cultivo de Soja</h1>
+        <p>Monitoramento de Pegada Hídrica com Parâmetros Embrapa & Esalq/USP (450 mm - 800 mm)</p>
+    </div>
+
+    <div class="dashboard-grid">
+        <!-- Cadastrar Propriedade -->
+        <div class="card">
+            <h2>1. Cadastrar Propriedade & Reservatório</h2>
+            <form id="formPropriedade">
+                <div class="form-group">
+                    <label>Nome da Propriedade:</label>
+                    <input type="text" id="nome_propriedade" required placeholder="Ex: Fazenda Santa Maria">
+                </div>
+                <div class="form-group">
+                    <label>Proprietário:</label>
+                    <input type="text" id="proprietario" required placeholder="Ex: João da Silva">
+                </div>
+                <div class="form-group">
+                    <label>Cidade / UF:</label>
+                    <input type="text" id="cidade_uf" required placeholder="Ex: Rio Verde / GO">
+                </div>
+                <div class="form-group">
+                    <label>Latitude / Longitude <small>(opcional — ativa o balanço hídrico diário com clima real)</small>:</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="number" step="any" id="latitude" placeholder="Ex: -29.88">
+                        <input type="number" step="any" id="longitude" placeholder="Ex: -53.00">
+                        <button type="button" id="btnLocalizarMe" title="Usar minha localização atual">📍</button>
+                    </div>
+                    <small style="color:#666;">Sem estas coordenadas, os talhões usam o modelo simplificado (fatores fixos).</small>
+                </div>
+                <div class="form-group">
+                    <label>Capacidade do Reservatório (m³):</label>
+                    <input type="number" id="capacidade_reservatorio_m3" step="100" required placeholder="Ex: 500000">
+                </div>
+                <button type="submit">Salvar Propriedade</button>
+            </form>
+        </div>
+
+        <!-- Cadastrar Talhão com Clima, Solo, Manejo e Nutrição -->
+        <div class="card">
+            <h2>2. Cadastrar Talhão</h2>
+            <form id="formTalhao">
+                <div class="form-group">
+                    <label>Propriedade:</label>
+                    <select id="selectPropriedade" required>
+                        <option value="">Selecione...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Identificação do Talhão:</label>
+                    <input type="text" id="nome_talhao" required placeholder="Ex: Talhão 01 - Norte">
+                </div>
+                <div class="form-group">
+                    <label>Ciclo (Dias):</label>
+                    <input type="number" id="ciclo_dias" value="120" required>
+                </div>
+                <div class="form-group">
+                    <label>Produtividade Esperada (sacos/ha) <small>(1 saca = 60 kg — usada no balanço de carbono e na pegada de carbono por saca)</small>:</label>
+                    <input type="number" id="produtividade_sacos_ha" value="60" step="0.1" min="0">
+                </div>
+
+                <!-- BALANÇO HÍDRICO DIÁRIO (CLIMA REAL) -->
+                <div class="form-group" style="background-color: #e3f2fd; padding: 10px; border-radius: 5px; border: 1px solid #90caf9;">
+                    <label style="color:#1565c0; font-weight:bold;">Data de Semeadura <small>(opcional)</small>:</label>
+                    <input type="date" id="data_semeadura">
+                    <small style="color:#1565c0; display:block; margin-top:4px;">
+                        Preencha para calcular o balanço hídrico dia-a-dia com dados climáticos reais
+                        (Open-Meteo), em vez do modelo simplificado por fatores fixos. Requer que a
+                        propriedade tenha latitude/longitude cadastradas.
+                    </small>
+                    <div style="display:flex; gap:5px; margin-top:6px;">
+                        <div style="flex:1;">
+                            <label style="font-weight:normal;">CAD total (mm):</label>
+                            <input type="number" id="cad_total_mm" value="60" step="1">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-weight:normal;">Fator de depleção (f):</label>
+                            <input type="number" id="fator_depleção" value="0.5" step="0.05" min="0" max="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PARÂMETROS AGRONÔMICOS (modelo simplificado / fallback) -->
+                <div class="form-group">
+                    <label>Tipo de Clima:</label>
+                    <select id="clima" required>
+                        <option value="tropical" selected>Tropical Úmido</option>
+                        <option value="semiarido">Semiárido / Seco</option>
+                        <option value="temperado">Temperado / Ameno</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Tipo de Solo:</label>
+                    <select id="solo" required>
+                        <option value="arenoso">Arenoso (&lt;20% Argila - Turno: 2 dias)</option>
+                        <option value="franco" selected>Texto Médio (20%-35% Argila - Turno: 3 dias)</option>
+                        <option value="argiloso">Argiloso (&gt;35% Argila - Turno: 4 a 5 dias)</option>
+                    </select>
+                </div>
+                
+                <!-- SISTEMA DE MANEJO -->
+                <div class="form-group">
+                    <label>Sistema de Manejo:</label>
+                    <select id="manejo" required>
+                        <option value="spd" selected>Plantio Direto (Até 30% econ. evaporação / +11% prod.)</option>
+                        <option value="inoculacao">Inoculação Bradyrhizobium (Otimização industrial/raízes)</option>
+                        <option value="rotacao">Rotação com Gramíneas (&gt;50% reduç. enxurrada)</option>
+                        <option value="descompactacao">Descompactação Estrutural (Bioporos e infiltração)</option>
+                        <option value="convencional">Manejo Convencional</option>
+                    </select>
+                </div>
+
+                <!-- NUTRIÇÃO E CORREÇÃO -->
+                <div class="form-group">
+                    <label>Nutrição e Correção de Solo:</label>
+                    <select id="nutricao" required>
+                        <option value="nenhum">Nenhuma / Padrão</option>
+                        <option value="calagem">Calagem (Neutraliza Al³+ e elevação de pH)</option>
+                        <option value="gessagem">Gessagem (Até 100% mais raízes em profundidade &gt;40cm)</option>
+                        <option value="adubacao_base">Adubação Potássica (20%-30% eficiência estomática)</option>
+                        <option value="completo">Manejo Nutricional Completo (Calagem + Gesso + K)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Chuva na Região (mm):</label>
+                    <input type="number" id="chuva_mm" value="0" placeholder="Informe a precipitação acumulada">
+                </div>
+                <div class="form-group">
+                    <label>Dimensões (Largura x Comprimento em metros):</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="number" id="largura_m" placeholder="Largura (m)" required>
+                        <input type="number" id="comprimento_m" placeholder="Comprimento (m)" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Área Calculada (ha):</label>
+                    <input type="text" id="area_ha_calc" readonly style="background-color: #eee;" value="0.00 ha">
+                </div>
+
+                <div class="form-group" style="background-color: #e8f5e9; padding: 10px; border-radius: 5px; border: 1px solid #c8e6c9;">
+                    <label style="color: #2e7d32; font-weight: bold;">Necessidade Hídrica Estimada (prévia — modelo simplificado):</label>
+                    <input type="text" id="irrigacao_estimada_mm" readonly
+                           style="background-color: #fff; font-weight: bold; color: #1b5e20;"
+                           value="Demanda cultura: 0,00 mm | Irrigação líquida: 0,00 mm">
+                    <small id="recomendacao_turno" style="color: #2e7d32; font-weight: bold; display: block; margin-top: 4px;"></small>
+                    <div id="alerta_agua" style="margin-top: 6px; font-size: 12px; color: #555;"></div>
+                    <small style="color:#1565c0; display:block; margin-top:6px;">
+                        ℹ️ Esta prévia usa o modelo simplificado (cálculo instantâneo no navegador). Se você
+                        preencher a <b>Data de Semeadura</b> acima e a propriedade tiver latitude/longitude,
+                        o valor salvo será recalculado no servidor com o <b>balanço hídrico diário e clima real</b>
+                        — disponível depois de salvar, no botão "📈 Ver Balanço" da tabela.
+                    </small>
+                </div>
+
+                <button type="submit">Salvar Talhão</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Tabela de Monitoramento -->
+    <div class="card" style="margin-top: 20px;">
+        <h2>3. Monitoramento dos Talhões e Demanda Hídrica</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Propriedade</th>
+                        <th>Talhão</th>
+                        <th>Área (ha)</th>
+                        <th>Condições (Clima / Solo / Manejo / Nutrição)</th>
+                        <th>Chuva (mm)</th>
+                        <th>Produtividade (sacos/ha)</th>
+                        <th>Demanda Cultura (mm)</th>
+                        <th>Irrigação Líquida (mm)</th>
+                        <th>Modelo</th>
+                        <th>Volume Reservatório (m³)</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tabelaTalhoesBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Balanço Hídrico Diário (clima real) -->
+    <div class="card" id="cardBalancoDiario" style="margin-top: 20px; display: none;">
+        <h2 id="tituloBalancoDiario">4. Balanço Hídrico Diário — Talhão</h2>
+        <p id="resumoBalancoDiario" style="color:#555; font-size: 14px;"></p>
+        <div id="avisoBalancoDiario" style="display:none; background:#fff3e0; border:1px solid #ffcc80; color:#e65100; padding:8px; border-radius:4px; margin-bottom:10px; font-size: 13px;"></div>
+        <div class="chart-card" style="height: 380px;"><canvas id="chartBalancoDiario"></canvas></div>
+        <button type="button" onclick="fecharBalancoDiario()" style="margin-top: 10px;">Fechar</button>
+    </div>
+
+    <!-- Indicadores automáticos de CO₂ — calculados a partir dos dados do talhão -->
+    <div class="card" id="cardCO2Automatico" style="margin-top:20px;">
+        <h2>5. CO₂ por Talhão</h2>
+        <div id="co2Talhoes"></div>
+
+        <h2 style="margin-top:24px;">6. Dados Gerais — Soma dos Talhões</h2>
+        <div id="co2Resumo" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;"></div>
+        <small style="display:block;margin-top:12px;color:#666;">O Dashboard considera as principais etapas mecanizadas e os fertilizantes. Os valores de plantio, pulverização e transporte são estimativas internas e não aparecem no formulário.</small>
+    </div>
+
+    <!-- Dashboard individual de Pegada de Carbono por Talhão (estilo escuro) -->
+    <div class="card" id="cardPegadaCarbonoTalhao" style="display:none; margin-top:20px; padding:0;">
+        <div class="pcd-dashboard">
+            <div class="pcd-header">
+                <h2 id="pcdTitulo">DASHBOARD DE PEGADA DE CARBONO | SOJA</h2>
+            </div>
+
+            <div class="pcd-kpis">
+                <div class="pcd-kpi">
+                    <div class="pcd-kpi-label">Área Total Monitorada</div>
+                    <div class="pcd-kpi-value"><span class="pcd-icon">🌱</span><span id="pcdArea">—</span></div>
+                </div>
+                <div class="pcd-kpi">
+                    <div class="pcd-kpi-label">Emissão Total (Diesel)</div>
+                    <div class="pcd-kpi-value"><span class="pcd-icon">⛽</span><span id="pcdDiesel">—</span></div>
+                    <div class="pcd-kpi-sub" id="pcdDieselLitros">—</div>
+                </div>
+                <div class="pcd-kpi">
+                    <div class="pcd-kpi-label">Emissão Total (Fertilizantes)</div>
+                    <div class="pcd-kpi-value"><span class="pcd-icon">🌾</span><span id="pcdFertilizante">—</span></div>
+                </div>
+                <div class="pcd-kpi">
+                    <div class="pcd-kpi-label">Pegada de Carbono Total</div>
+                    <div class="pcd-kpi-value"><span class="pcd-icon">☁️</span><span id="pcdPegadaTotal">—</span></div>
+                </div>
+                <div class="pcd-kpi">
+                    <div class="pcd-kpi-label">Intensidade / Hectare</div>
+                    <div class="pcd-kpi-value"><span class="pcd-icon">📊</span><span id="pcdIntensidade">—</span></div>
+                </div>
+            </div>
+
+            <div class="pcd-charts">
+                <div class="pcd-chart-card">
+                    <div class="pcd-chart-title">Donut Chart<small>Distribuição percentual do impacto</small></div>
+                    <div style="height:280px;"><canvas id="pcdChartDonut"></canvas></div>
+                </div>
+                <div class="pcd-chart-card">
+                    <div class="pcd-chart-title">Clustered Bar Chart<small>Emissões operacionais (diesel) — kg CO₂eq</small></div>
+                    <div style="height:280px;"><canvas id="pcdChartBar"></canvas></div>
+                </div>
+            </div>
+
+            <div class="pcd-table-wrap">
+                <div class="pcd-table-title">Resumo Operacional do Talhão</div>
+                <div style="overflow:auto;">
+                    <table class="pcd-table" style="min-width:600px;">
+                        <thead>
+                            <tr>
+                                <th>Operação</th>
+                                <th>Área (ha)</th>
+                                <th>Consumo (L/ha)</th>
+                                <th>Diesel Total (L)</th>
+                                <th>Fator Diesel (kg CO₂/L)</th>
+                                <th>Emissão Total (kg CO₂eq)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pcdTabelaBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="pcd-footer">
+                <button type="button" class="pcd-btn-fechar" onclick="fecharPegadaCarbonoTalhao()">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Balanço de Carbono (CO2 fixado x emitido) e Pegada por Saca -->
+    <div class="card" id="cardBalancoCarbono" style="margin-top:20px;">
+        <h2>8. Balanço de Carbono (CO₂ Fixado x Emitido) e Pegada por Saca</h2>
+        <p style="color:#555; font-size: 13px;">
+            O CO₂ fixado representa a captura via fotossíntese durante o ciclo (grãos + palhada),
+            estimada a partir da produtividade informada. O CO₂ emitido soma diesel de todas as
+            etapas mecanizadas (plantio, pulverização, colheita e transporte) e fertilizantes.
+            Não é uma medida de sequestro permanente de carbono no solo — ver nota de metodologia
+            ao final.
+        </p>
+        <div id="balancoCarbonoResumo" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
+        <div id="balancoCarbonoTalhoes"></div>
+        <div class="chart-card" style="height: 340px; margin-top: 16px;"><canvas id="chartBalancoCarbono"></canvas></div>
+        <small style="display:block;margin-top:12px;color:#666;">
+            Metodologia (estimativa Tier 1): CO₂ fixado = (produção de grão ÷ índice de colheita 0,40)
+            × fração de carbono da biomassa (0,45) × 44/12. CO₂ emitido = diesel de plantio (4,7 L/ha) +
+            pulverização (7,5 L/ha) + colheita (12 L/ha) + transporte (7 L/ha) × 2,68 kg CO₂/L, somado às
+            emissões de fertilizantes. 1 saca = 60 kg.
+        </small>
+    </div>
+
+    <!-- Gráficos -->
+    <h2 style="margin-top: 30px; color: #1b5e20;">9. Nível dos Reservatórios e Indicadores</h2>
+    <div class="charts-grid">
+        <div class="chart-card"><canvas id="chartReservatorios"></canvas></div>
+        <div class="chart-card"><canvas id="chartCO2"></canvas></div>
+        <div class="chart-card"><canvas id="chartImpacto"></canvas></div>
+    </div>
+
+    <script>
+        let chartResInstance = null;
+        let chartCO2Instance = null;
+        let chartImpactoInstance = null;
+        let chartBalancoCarbonoInstance = null;
+        let pcdChartDonutInstance = null;
+        let pcdChartBarInstance = null;
+
+        const FATORES = {
+            clima: { tropical: 1.0, semiarido: 1.15, temperado: 0.9 },
+            solo: { arenoso: 1.1, franco: 1.0, argiloso: 0.9 },
+            manejo: { convencional: 1.0, spd: 0.725, inoculacao: 0.95, rotacao: 0.85, descompactacao: 0.90 },
+            nutricao: { nenhum: 1.0, calagem: 0.97, gessagem: 0.90, adubacao_base: 0.80, completo: 0.65 }
+        };
+        // Mesmas constantes usadas no backend (app.py) — mantidas idênticas aqui
+        // para que a pré-visualização no formulário nunca divirja do valor
+        // salvo no servidor.
+        const CICLO_REFERENCIA_DIAS = 120.0;
+        const MIN_EMBRAPA_MM = 450.0;
+        const MAX_EMBRAPA_MM = 800.0;
+        const FATOR_COMBINADO_MINIMO = 0.55;
+        // Piso Embrapa sensível ao manejo — mesma regra do backend: apenas a
+        // parcela evaporativa do ciclo (30%) responde a SPD/rotação/
+        // descompactação; nutrição não altera o piso (melhora acesso, não
+        // reduz consumo total da planta).
+        const PARCELA_EVAPORACAO_SOLO = 0.30;
+
+        const RECOMENDACOES_SOLO = {
+            arenoso: "Turno recomendado: A cada 2 dias (10 a 11 mm bruta/rega)",
+            franco: "Turno recomendado: A cada 3 dias (15 a 17 mm bruta/rega)",
+            argiloso: "Turno recomendado: A cada 4 a 5 dias (20 a 23 mm bruta/rega)"
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarPropriedades();
+            carregarDashboard();
+
+            const larguraInput = document.getElementById('largura_m');
+            const comprimentoInput = document.getElementById('comprimento_m');
+            const cicloInput = document.getElementById('ciclo_dias');
+            const chuvaInput = document.getElementById('chuva_mm');
+            const climaInput = document.getElementById('clima');
+            const soloInput = document.getElementById('solo');
+            const manejoInput = document.getElementById('manejo');
+            const nutricaoInput = document.getElementById('nutricao');
+            const areaCalcInput = document.getElementById('area_ha_calc');
+            const aguaCalcInput = document.getElementById('irrigacao_estimada_mm');
+            const recTurnoInput = document.getElementById('recomendacao_turno');
+
+            function recalcularCampos() {
+                const l = parseFloat(larguraInput.value) || 0;
+                const c = parseFloat(comprimentoInput.value) || 0;
+                const dias = parseFloat(cicloInput.value) || 0;
+                let chuva = parseFloat(chuvaInput.value) || 0;
+
+                const fc = FATORES.clima[climaInput.value] || 1.0;
+                const fs = FATORES.solo[soloInput.value] || 1.0;
+                const fm = FATORES.manejo[manejoInput.value] || 1.0;
+                const fn = FATORES.nutricao[nutricaoInput.value] || 1.0;
+
+                const areaHA = (l * c) / 10000;
+                areaCalcInput.value = `${areaHA.toFixed(2)} ha`;
+
+                const DEMANDA_BASE_DIARIA = 5.0;
+                const EFICIENCIA_IRRIGACAO = 0.85;
+                const MIN_DIARIO_MM = MIN_EMBRAPA_MM / CICLO_REFERENCIA_DIAS;
+                const MAX_DIARIO_MM = MAX_EMBRAPA_MM / CICLO_REFERENCIA_DIAS;
+
+                // Piso ajustado por clima + solo/manejo (idêntico ao backend,
+                // BUG CORRIGIDO): clima entra integralmente (afeta a própria
+                // transpiração via demanda atmosférica/ETo); solo e manejo
+                // dividem a parcela evaporativa direta do solo (~30% do
+                // ciclo). Nutrição nunca entra aqui — ela melhora o acesso da
+                // raiz à água, não reduz o consumo total da planta.
+                const fatorEvaporativoSoloManejo = 1.0 - PARCELA_EVAPORACAO_SOLO * (1.0 - fs * fm);
+                const fatorPiso = fc * fatorEvaporativoSoloManejo;
+                const minDiarioAjustadoMM = MIN_DIARIO_MM * fatorPiso;
+
+                // Fator combinado com piso — evita que a soma de várias práticas
+                // "ótimas" reduza a demanda de forma irreal (idêntico ao backend).
+                const fatorCombinado = Math.max(fc * fs * fm * fn, FATOR_COMBINADO_MINIMO);
+
+                let demandaDiariaMM = DEMANDA_BASE_DIARIA * fatorCombinado;
+                demandaDiariaMM = Math.min(Math.max(demandaDiariaMM, minDiarioAjustadoMM), MAX_DIARIO_MM);
+
+                let demandaCulturaMM = demandaDiariaMM * dias;
+
+                if (manejoInput.value === 'rotacao') {
+                    chuva *= 1.25;
+                }
+
+                let chuvaUtilizavelMM = Math.min(Math.max(chuva, 0), demandaCulturaMM);
+                let irrigacaoLiquidaMM = Math.max(0, demandaCulturaMM - chuvaUtilizavelMM);
+                let laminaBrutaMM = irrigacaoLiquidaMM / EFICIENCIA_IRRIGACAO;
+                let aguaM3 = areaHA * laminaBrutaMM * 10;
+
+                aguaCalcInput.value =
+                    `Demanda cultura: ${demandaCulturaMM.toFixed(2)} mm | ` +
+                    `Irrigação líquida: ${irrigacaoLiquidaMM.toFixed(2)} mm`;
+
+                recTurnoInput.textContent = RECOMENDACOES_SOLO[soloInput.value] || '';
+
+                const alerta = document.getElementById('alerta_agua');
+                if (alerta) {
+                    alerta.textContent =
+                        `Volume estimado a retirar do reservatório: ` +
+                        `${aguaM3.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})} m³`;
+                }
+            }
+
+            [larguraInput, comprimentoInput, cicloInput, chuvaInput, climaInput, soloInput, manejoInput, nutricaoInput].forEach(elem => {
+                elem.addEventListener('input', recalcularCampos);
+            });
+        });
+
+        document.getElementById('btnLocalizarMe')?.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                alert('Geolocalização não suportada neste navegador. Informe latitude/longitude manualmente.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    document.getElementById('latitude').value = pos.coords.latitude.toFixed(5);
+                    document.getElementById('longitude').value = pos.coords.longitude.toFixed(5);
+                },
+                () => alert('Não foi possível obter sua localização. Informe manualmente.')
+            );
+        });
+
+        document.getElementById('formPropriedade').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const payload = {
+                nome_propriedade: document.getElementById('nome_propriedade').value,
+                proprietario: document.getElementById('proprietario').value,
+                cidade_uf: document.getElementById('cidade_uf').value,
+                latitude: document.getElementById('latitude').value || null,
+                longitude: document.getElementById('longitude').value || null,
+                capacidade_reservatorio_m3: document.getElementById('capacidade_reservatorio_m3').value
+            };
+
+            const res = await fetch('/api/propriedades', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                alert('Propriedade salva com sucesso!');
+                document.getElementById('formPropriedade').reset();
+                carregarPropriedades();
+                carregarDashboard();
+            }
+        });
+
+        async function carregarPropriedades() {
+            const res = await fetch('/api/propriedades');
+            const dados = await res.json();
+            const select = document.getElementById('selectPropriedade');
+            select.innerHTML = '<option value="">Selecione...</option>';
+            dados.forEach(p => {
+                select.innerHTML += `<option value="${p.id_propriedade}">${p.nome_propriedade} (Cap: ${p.capacidade_reservatorio_m3.toLocaleString('pt-BR')} m³)</option>`;
+            });
+        }
+
+        document.getElementById('formTalhao').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const payload = {
+                id_propriedade: document.getElementById('selectPropriedade').value,
+                nome_talhao: document.getElementById('nome_talhao').value,
+                ciclo_dias: document.getElementById('ciclo_dias').value,
+                produtividade_sacos_ha: document.getElementById('produtividade_sacos_ha').value,
+                data_semeadura: document.getElementById('data_semeadura').value || null,
+                cad_total_mm: document.getElementById('cad_total_mm').value,
+                fator_depleção: document.getElementById('fator_depleção').value,
+                chuva_mm: document.getElementById('chuva_mm').value,
+                clima: document.getElementById('clima').value,
+                solo: document.getElementById('solo').value,
+                manejo: document.getElementById('manejo').value,
+                nutricao: document.getElementById('nutricao').value,
+                largura_m: document.getElementById('largura_m').value,
+                comprimento_m: document.getElementById('comprimento_m').value,
+                cultura: 'Soja'
+            };
+
+            const res = await fetch('/api/talhoes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                alert('Talhão cadastrado!');
+                document.getElementById('formTalhao').reset();
+                carregarDashboard();
+            }
+        });
+
+        async function simularTalhao(idTalhao) {
+            const novaChuva = document.getElementById(`chuva_talhao_${idTalhao}`).value;
+            const novaProdutividade = document.getElementById(`produtividade_talhao_${idTalhao}`).value;
+
+            const res = await fetch(`/api/talhoes/${idTalhao}/simular`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chuva_mm: novaChuva, produtividade_sacos_ha: novaProdutividade })
+            });
+
+            if (res.ok) carregarDashboard();
+        }
+
+        async function carregarDashboard() {
+            const resTalhoes = await fetch('/api/talhoes');
+            const talhoes = await resTalhoes.json();
+            
+            const tbody = document.getElementById('tabelaTalhoesBody');
+            tbody.innerHTML = '';
+            
+            talhoes.forEach(t => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${t.id_talhao}</td>
+                        <td><b>${t.nome_propriedade}</b></td>
+                        <td>${t.nome_talhao}</td>
+                        <td>${Number(t.area_ha || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                        <td><small>${t.clima} / ${t.solo} / ${t.manejo} / ${t.nutricao}</small></td>
+                        <td>
+                            <input type="number" id="chuva_talhao_${t.id_talhao}" value="${t.chuva_mm}" style="width: 65px;"> mm
+                        </td>
+                        <td>
+                            <input type="number" id="produtividade_talhao_${t.id_talhao}" value="${t.produtividade_sacos_ha ?? 60}" step="0.1" style="width: 65px;">
+                        </td>
+                        <td>${Number(t.demanda_teorica_mm || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})} mm</td>
+                        <td><b>${Number(t.irrigacao_mm || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})} mm</b></td>
+                        <td>${badgeModelo(t.modelo_usado)}</td>
+                        <td>${Number(t.agua_m3 || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})} m³</td>
+                        <td>
+                            <button type="button" onclick="simularTalhao(${t.id_talhao})" style="padding: 4px 8px;">Atualizar</button>
+                            ${(t.modelo_usado === 'balanco_diario_real' || t.modelo_usado === 'fatores_fixos_fallback')
+                                ? `<button type="button" onclick="verBalancoDiario(${t.id_talhao}, '${(t.nome_talhao || '').replace(/'/g, "\\'")}')" style="padding: 4px 8px; margin-top: 4px;">📈 Ver Balanço</button>`
+                                : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            const resGraficos = await fetch('/api/dashboard/graficos');
+            const dadosGraficos = await resGraficos.json();
+            renderizarCO2Automatico(talhoes, dadosGraficos);
+            renderizarBalancoCarbono(dadosGraficos);
+            renderizarGraficos(dadosGraficos);
+        }
+
+        function renderizarCO2Automatico(talhoes, dadosGerais = null) {
+            const CO2_KG_L = 2.68;
+            const f = n => Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+            const areaTotal = talhoes.reduce((s,t) => s + Number(t.area_ha || 0), 0);
+            const elResumo = document.getElementById('co2Resumo');
+            const elTalhoes = document.getElementById('co2Talhoes');
+            if (!elResumo || !elTalhoes) return;
+
+            // 1) PRIMEIRO: detalhamento completo por talhão e por etapa
+            const linhas = talhoes.map(t => {
+                const area = Number(t.area_ha || 0);
+                const colheita = area * 12.0;
+                const plantio = area * 4.7;
+                const pulverizacao = area * 7.5;
+                const transporte = area * 7.0;
+                const fertilizante = area * 350.0 * 1.5;
+                const total = (colheita + plantio + pulverizacao + transporte) * CO2_KG_L + fertilizante;
+                return `<tr>
+                    <td style="padding:10px;text-align:left;font-weight:600">${t.nome_talhao || `Talhão #${t.id_talhao}`}</td>
+                    <td style="padding:10px">${f(area)} ha</td>
+                    <td style="padding:10px">${f(plantio*CO2_KG_L)} kg</td>
+                    <td style="padding:10px">${f(pulverizacao*CO2_KG_L)} kg</td>
+                    <td style="padding:10px">${f(colheita*CO2_KG_L)} kg</td>
+                    <td style="padding:10px">${f(transporte*CO2_KG_L)} kg</td>
+                    <td style="padding:10px">${f(fertilizante)} kg</td>
+                    <td style="padding:10px;font-weight:700">${f(total)} kg<br><small>${f(total/1000)} t</small></td>
+                    <td style="padding:10px">
+                        <button type="button" class="pcd-btn-ver-balanco" onclick="verPegadaCarbonoTalhao(${t.id_talhao}, '${(t.nome_talhao || `Talhão #${t.id_talhao}`).replace(/'/g, "\\'")}')">Ver Balanço</button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            elTalhoes.innerHTML = `<div style="overflow:auto;margin-top:10px">
+                <table style="width:100%;border-collapse:collapse;min-width:1200px">
+                    <thead><tr style="background:#f1f8f3">
+                        <th style="text-align:left;padding:10px">Talhão</th>
+                        <th style="padding:10px">Área</th>
+                        <th style="padding:10px">Plantio</th>
+                        <th style="padding:10px">Pulverização</th>
+                        <th style="padding:10px">Colheita</th>
+                        <th style="padding:10px">Transporte</th>
+                        <th style="padding:10px">Fertilizantes</th>
+                        <th style="padding:10px">Total CO₂</th>
+                        <th style="padding:10px">Ações</th>
+                    </tr></thead>
+                    <tbody>${linhas || '<tr><td colspan="9" style="padding:12px">Nenhum talhão cadastrado.</td></tr>'}</tbody>
+                </table>
+            </div>
+            <small style="display:block;margin-top:10px;color:#666">
+                Estimativas automáticas: plantio 4,7 L/ha; pulverização 7,5 L/ha; colheita 12 L/ha; transporte 7 L/ha. Fertilizantes seguem o cálculo já existente no sistema. Fator diesel: 2,68 kg CO₂/L.
+            </small>`;
+
+            // 2) DEPOIS: dados gerais — soma de todas as etapas e talhões
+            const fontes = dadosGerais?.emissao_fontes || {};
+            const totalKg = Object.values(fontes).reduce((s,v) => s + Number(v || 0), 0);
+            const dieselTotal = areaTotal * (4.7 + 7.5 + 12.0 + 7.0);
+            const resumo = [
+                ['Área total dos talhões', `${f(areaTotal)} ha`],
+                ['Diesel estimado — operações', `${f(dieselTotal)} L`],
+                ['CO₂ de operações', `${f((totalKg - Number(fontes['Fertilizantes'] || 0)))} kg`],
+                ['CO₂ de fertilizantes', `${f(fontes['Fertilizantes'] || 0)} kg`],
+                ['CO₂ TOTAL DO CICLO', `${f(totalKg)} kg (${f(totalKg/1000)} t)`]
+            ];
+            elResumo.innerHTML = resumo.map(([a,b]) => `<div style="background:#f5f7f5;border-left:4px solid #2e7d32;padding:14px;border-radius:6px"><div style="font-size:12px;color:#666">${a}</div><div style="font-size:21px;font-weight:bold;color:#1b5e20;margin-top:5px">${b}</div></div>`).join('');
+        }
+
+        async function verPegadaCarbonoTalhao(idTalhao, nomeTalhao) {
+            const card = document.getElementById('cardPegadaCarbonoTalhao');
+            card.style.display = 'block';
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            document.getElementById('pcdTitulo').textContent =
+                `Carregando dados de ${nomeTalhao}...`;
+
+            const res = await fetch(`/api/talhoes/${idTalhao}/balanco-carbono`);
+            const b = await res.json();
+
+            if (!res.ok) {
+                document.getElementById('pcdTitulo').textContent =
+                    `Erro ao carregar dados de ${nomeTalhao}`;
+                return;
+            }
+
+            const f = n => Number(n || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const ft = n => Number((n || 0) / 1000).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+            document.getElementById('pcdTitulo').textContent =
+                `DASHBOARD DE PEGADA DE CARBONO | SOJA - ${nomeTalhao.toUpperCase()} (${f(b.area_ha)} ha)`;
+
+            document.getElementById('pcdArea').textContent = `${f(b.area_ha)} ha`;
+            document.getElementById('pcdDiesel').textContent = `${ft(b.co2_emitido_operacoes_kg)} t CO₂eq`;
+            document.getElementById('pcdFertilizante').textContent = `${ft(b.co2_emitido_fertilizante_kg)} t CO₂eq`;
+            document.getElementById('pcdPegadaTotal').textContent = `${ft(b.co2_emitido_total_kg)} t CO₂eq`;
+            document.getElementById('pcdIntensidade').textContent =
+                b.intensidade_co2_kg_ha !== null && b.intensidade_co2_kg_ha !== undefined
+                    ? `${f(b.intensidade_co2_kg_ha)} kg CO₂eq/ha`
+                    : '—';
+
+            const det = b.detalhamento_operacoes || {};
+            const dieselTotalLitros = ['plantio', 'pulverizacao', 'colheita', 'transporte']
+                .reduce((s, k) => s + Number((det[k] && det[k].diesel_litros) || 0), 0);
+            document.getElementById('pcdDieselLitros').textContent = `${f(dieselTotalLitros)} L de diesel`;
+
+            // --- Donut chart: distribuição percentual do impacto ---
+            if (pcdChartDonutInstance) pcdChartDonutInstance.destroy();
+            const ctxDonut = document.getElementById('pcdChartDonut').getContext('2d');
+            pcdChartDonutInstance = new Chart(ctxDonut, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Fertilizantes', 'Diesel'],
+                    datasets: [{
+                        data: [b.co2_emitido_fertilizante_kg, b.co2_emitido_operacoes_kg],
+                        backgroundColor: ['#ffa726', '#4caf50'],
+                        borderColor: '#132922',
+                        borderWidth: 3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { color: '#dce8e2', font: { size: 12 } } },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ft(ctx.raw)} t CO₂eq` } }
+                    }
+                }
+            });
+
+            // --- Bar chart: emissões operacionais (diesel) por etapa ---
+            const operacoes = [
+                { nome: 'Colheita', dados: det.colheita, cor: '#2e7d32' },
+                { nome: 'Pulverização', dados: det.pulverizacao, cor: '#66bb6a' },
+                { nome: 'Transporte', dados: det.transporte, cor: '#81c784' },
+                { nome: 'Plantio', dados: det.plantio, cor: '#a5d6a7' },
+            ];
+
+            if (pcdChartBarInstance) pcdChartBarInstance.destroy();
+            const ctxBar = document.getElementById('pcdChartBar').getContext('2d');
+            pcdChartBarInstance = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: operacoes.map(o => o.nome),
+                    datasets: [{
+                        data: operacoes.map(o => (o.dados ? o.dados.co2_kg : 0)),
+                        backgroundColor: operacoes.map(o => o.cor)
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    const litros = operacoes[ctx.dataIndex]?.dados?.diesel_litros;
+                                    return litros !== undefined
+                                        ? `${ft(ctx.raw)} t CO₂eq  (${f(litros)} L diesel)`
+                                        : `${ft(ctx.raw)} t CO₂eq`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#9db3ab' }, grid: { color: '#1c352d' } },
+                        y: { ticks: { color: '#dce8e2' }, grid: { display: false } }
+                    }
+                }
+            });
+
+            // --- Tabela: resumo operacional do talhão ---
+            const tbody = document.getElementById('pcdTabelaBody');
+            tbody.innerHTML = operacoes.map(o => {
+                const d = o.dados || {};
+                return `<tr>
+                    <td>${o.nome}</td>
+                    <td>${f(d.area_ha)}</td>
+                    <td>${f(d.consumo_l_ha)}</td>
+                    <td>${f(d.diesel_litros)} L</td>
+                    <td>${f(d.fator_emissao_kg_co2_l)}</td>
+                    <td>${ft(d.co2_kg)} t</td>
+                </tr>`;
+            }).join('');
+            tbody.innerHTML += `<tr style="font-weight:700;background:#0f221c;">
+                <td>Total</td>
+                <td>—</td>
+                <td>—</td>
+                <td>${f(dieselTotalLitros)} L</td>
+                <td>—</td>
+                <td>${ft(b.co2_emitido_operacoes_kg)} t</td>
+            </tr>`;
+        }
+
+        function fecharPegadaCarbonoTalhao() {
+            document.getElementById('cardPegadaCarbonoTalhao').style.display = 'none';
+            if (pcdChartDonutInstance) { pcdChartDonutInstance.destroy(); pcdChartDonutInstance = null; }
+            if (pcdChartBarInstance) { pcdChartBarInstance.destroy(); pcdChartBarInstance = null; }
+        }
+
+        function renderizarBalancoCarbono(dadosGerais) {
+            const f = n => Number(n).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const elResumo = document.getElementById('balancoCarbonoResumo');
+            const elTalhoes = document.getElementById('balancoCarbonoTalhoes');
+            if (!elResumo || !elTalhoes) return;
+
+            const porTalhao = dadosGerais?.balanco_carbono_por_talhao || [];
+            const resumoGeral = dadosGerais?.balanco_carbono || {};
+
+            const linhas = porTalhao.map(b => {
+                const saldoCor = b.saldo_carbono_positivo ? '#1b5e20' : '#c62828';
+                const pegada = b.pegada_carbono_por_saco_kg;
+                return `<tr>
+                    <td style="padding:10px;text-align:left;font-weight:600">${b.nome_talhao || `Talhão #${b.id_talhao}`}</td>
+                    <td style="padding:10px">${f(b.producao_sacos)} sc</td>
+                    <td style="padding:10px">${f(b.co2_fixado_kg)} kg</td>
+                    <td style="padding:10px">${f(b.co2_emitido_total_kg)} kg</td>
+                    <td style="padding:10px;font-weight:700;color:${saldoCor}">${f(b.saldo_carbono_kg)} kg</td>
+                    <td style="padding:10px">${pegada !== null && pegada !== undefined ? f(pegada) + ' kg/sc' : '—'}</td>
+                </tr>`;
+            }).join('');
+
+            elTalhoes.innerHTML = `<div style="overflow:auto">
+                <table style="width:100%;border-collapse:collapse;min-width:900px">
+                    <thead><tr style="background:#f1f8f3">
+                        <th style="text-align:left;padding:10px">Talhão</th>
+                        <th style="padding:10px">Produção</th>
+                        <th style="padding:10px">CO₂ Fixado</th>
+                        <th style="padding:10px">CO₂ Emitido</th>
+                        <th style="padding:10px">Saldo de Carbono</th>
+                        <th style="padding:10px">Pegada / Saca</th>
+                    </tr></thead>
+                    <tbody>${linhas || '<tr><td colspan="6" style="padding:12px">Nenhum talhão cadastrado.</td></tr>'}</tbody>
+                </table>
+            </div>`;
+
+            const saldoTotalCor = (resumoGeral.saldo_carbono_total_kg ?? 0) >= 0 ? '#1b5e20' : '#c62828';
+            const pegadaMedia = resumoGeral.pegada_media_por_saco_kg;
+            const resumo = [
+                ['Produção total', `${f(resumoGeral.producao_total_sacos || 0)} sc`],
+                ['CO₂ fixado (fotossíntese)', `${f(resumoGeral.co2_fixado_total_kg || 0)} kg`],
+                ['CO₂ emitido (total)', `${f(resumoGeral.co2_emitido_total_kg || 0)} kg`],
+                ['Saldo de carbono', `${f(resumoGeral.saldo_carbono_total_kg || 0)} kg`],
+                ['Pegada média por saca', pegadaMedia !== null && pegadaMedia !== undefined ? `${f(pegadaMedia)} kg CO₂/sc` : '—'],
+            ];
+            elResumo.innerHTML = resumo.map(([a, b], i) => {
+                const cor = (i === 3) ? saldoTotalCor : '#2e7d32';
+                return `<div style="background:#f5f7f5;border-left:4px solid ${cor};padding:14px;border-radius:6px"><div style="font-size:12px;color:#666">${a}</div><div style="font-size:21px;font-weight:bold;color:${cor === '#c62828' ? '#c62828' : '#1b5e20'};margin-top:5px">${b}</div></div>`;
+            }).join('');
+
+            if (chartBalancoCarbonoInstance) chartBalancoCarbonoInstance.destroy();
+            const ctxBC = document.getElementById('chartBalancoCarbono');
+            if (ctxBC && porTalhao.length) {
+                chartBalancoCarbonoInstance = new Chart(ctxBC.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: porTalhao.map(b => b.nome_talhao || `Talhão #${b.id_talhao}`),
+                        datasets: [
+                            { label: 'CO₂ Fixado (kg)', data: porTalhao.map(b => b.co2_fixado_kg), backgroundColor: '#66bb6a' },
+                            { label: 'CO₂ Emitido (kg)', data: porTalhao.map(b => b.co2_emitido_total_kg), backgroundColor: '#ef5350' }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+        }
+
+        function badgeModelo(modelo) {
+            if (modelo === 'balanco_diario_real') {
+                return '<span style="background:#c8e6c9; color:#1b5e20; padding:2px 6px; border-radius:3px; font-size:11px;">Clima real (diário)</span>';
+            }
+            if (modelo === 'fatores_fixos_fallback') {
+                return '<span style="background:#ffe0b2; color:#e65100; padding:2px 6px; border-radius:3px; font-size:11px;" title="Falha ao buscar clima real — usando modelo simplificado">Fallback ⚠️</span>';
+            }
+            return '<span style="background:#eee; color:#555; padding:2px 6px; border-radius:3px; font-size:11px;">Simplificado</span>';
+        }
+
+        let chartBalancoDiarioInstance = null;
+
+        async function verBalancoDiario(idTalhao, nomeTalhao) {
+            const card = document.getElementById('cardBalancoDiario');
+            const aviso = document.getElementById('avisoBalancoDiario');
+            const resumo = document.getElementById('resumoBalancoDiario');
+
+            document.getElementById('tituloBalancoDiario').textContent = `4. Balanço Hídrico Diário — ${nomeTalhao}`;
+            card.style.display = 'block';
+            resumo.textContent = 'Carregando dados climáticos reais...';
+            aviso.style.display = 'none';
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            const res = await fetch(`/api/talhoes/${idTalhao}/balanco-diario`);
+            const dados = await res.json();
+
+            if (!res.ok) {
+                resumo.textContent = '';
+                aviso.style.display = 'block';
+                aviso.textContent = dados.erro || 'Não foi possível calcular o balanço diário.';
+                if (chartBalancoDiarioInstance) chartBalancoDiarioInstance.destroy();
+                return;
+            }
+
+            const t = dados.totais;
+            resumo.innerHTML =
+                `Semeadura: <b>${dados.data_semeadura}</b> &nbsp;|&nbsp; ` +
+                `ETo total: <b>${t.eto_mm} mm</b> &nbsp;|&nbsp; ETc total: <b>${t.etc_mm} mm</b> &nbsp;|&nbsp; ` +
+                `Chuva: <b>${t.chuva_mm} mm</b> (efetiva: ${t.chuva_efetiva_mm} mm) &nbsp;|&nbsp; ` +
+                `Irrigação líquida: <b>${t.irrigacao_liquida_mm} mm</b> &nbsp;|&nbsp; ` +
+                `Dias com estresse hídrico: <b>${t.dias_com_estresse_hidrico}</b>`;
+
+            if (t.usa_dados_estimados) {
+                aviso.style.display = 'block';
+                aviso.textContent = 'Parte do período usa normal climatológica (mesma época do ano anterior), por estar além do horizonte de previsão meteorológica (~16 dias).';
+            } else {
+                aviso.style.display = 'none';
+            }
+
+            renderizarGraficoBalancoDiario(dados.serie_diaria);
+        }
+
+        function fecharBalancoDiario() {
+            document.getElementById('cardBalancoDiario').style.display = 'none';
+            if (chartBalancoDiarioInstance) {
+                chartBalancoDiarioInstance.destroy();
+                chartBalancoDiarioInstance = null;
+            }
+        }
+
+        function renderizarGraficoBalancoDiario(serieDiaria) {
+            if (chartBalancoDiarioInstance) chartBalancoDiarioInstance.destroy();
+
+            const ctx = document.getElementById('chartBalancoDiario').getContext('2d');
+            const labels = serieDiaria.map(d => d.dia_do_ciclo);
+
+            chartBalancoDiarioInstance = new Chart(ctx, {
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Chuva (mm)',
+                            data: serieDiaria.map(d => d.chuva_mm),
+                            backgroundColor: '#42a5f5',
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Irrigação necessária (mm)',
+                            data: serieDiaria.map(d => d.irrigacao_liquida_mm),
+                            backgroundColor: '#ef5350',
+                            yAxisID: 'y'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Armazenamento no solo (CAD, mm)',
+                            data: serieDiaria.map(d => d.armazenamento_mm),
+                            borderColor: '#2e7d32',
+                            backgroundColor: 'transparent',
+                            tension: 0.2,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Limite de depleção (mm)',
+                            data: serieDiaria.map(d => d.limite_deplecao_mm),
+                            borderColor: '#fb8c00',
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            type: 'line',
+                            label: 'ETc (mm/dia)',
+                            data: serieDiaria.map(d => d.etc_mm),
+                            borderColor: '#8e24aa',
+                            borderDash: [2, 2],
+                            pointRadius: 0,
+                            yAxisID: 'y'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { title: { display: true, text: 'Dias após a semeadura (DAS)' } },
+                        y: { position: 'left', title: { display: true, text: 'Chuva / Irrigação / ETc (mm)' } },
+                        y1: { position: 'right', title: { display: true, text: 'Armazenamento no solo (mm)' }, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+        }
+
+        function renderizarGraficos(dados) {
+            if (chartResInstance) chartResInstance.destroy();
+            if (chartCO2Instance) chartCO2Instance.destroy();
+            if (chartImpactoInstance) chartImpactoInstance.destroy();
+
+            const ctx1 = document.getElementById('chartReservatorios').getContext('2d');
+            const labelsRes = Object.keys(dados.reservatorios);
+
+            chartResInstance = new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: labelsRes,
+                    datasets: [
+                        { label: 'Saldo Reservatório (m³)', data: labelsRes.map(k => dados.reservatorios[k].saldo_atual_m3), backgroundColor: '#29b6f6' },
+                        { label: 'Volume Usado (m³)', data: labelsRes.map(k => dados.reservatorios[k].consumido_m3), backgroundColor: '#ef5350' }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+            });
+
+            const ctx2 = document.getElementById('chartCO2').getContext('2d');
+            chartCO2Instance = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(dados.emissao_fontes),
+                    datasets: [{ data: Object.values(dados.emissao_fontes), backgroundColor: ['#ab47bc', '#ffa726'] }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            const ctx3 = document.getElementById('chartImpacto').getContext('2d');
+            chartImpactoInstance = new Chart(ctx3, {
+                type: 'bar',
+                data: {
+                    labels: dados.impacto_talhao.map(i => i.nome),
+                    datasets: [{ label: 'Retirada Reservatório (m³)', data: dados.impacto_talhao.map(i => i.agua_m3), backgroundColor: '#66bb6a' }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+    </script>
+</body>
+</html>
